@@ -1,5 +1,6 @@
 import sys
 import argparse
+import json
 from typing import Any, List, Optional, Sequence, Union
 from fontTools.ufoLib import fontInfoAttributesVersion3ValueData as infoAttrValueData
 from ufoLib2 import Font
@@ -45,6 +46,12 @@ def main(args=None):
         "--glyph-unicode", metavar="STRING",
         help="<name>:<unicode>[,<unicode>,...][;<name>:...]",
         )
+    lib_group = parser.add_argument_group("Lib")
+    lib_group.add_argument(
+        "--lib-update", metavar="JSON",
+        help="JSON formatted lib data\n"
+        "'{key: value, [...]}'",
+    )
 
     options = parser.parse_args(args)
 
@@ -92,6 +99,11 @@ def main(args=None):
                 ]
                 print(glyph_name, unicodes.split(","))
                 print(glyph_name, font[glyph_name].unicodes)
+        if options.lib_update:
+            print(options.lib_update)
+            lib = json.loads(options.lib_update)
+            font.lib.update(lib)
+
         font.save()
 
 
