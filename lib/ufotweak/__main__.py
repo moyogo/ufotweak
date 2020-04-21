@@ -25,7 +25,10 @@ def process_fontinfo(font, options):
             elif data_type in (int, str):
                 setattr(font.info, key, data_type(value))
             elif isinstance(data_type, tuple) and float in data_type:
-                setattr(font.info, key, float(value))
+                value = float(value)
+                if value.is_integer():
+                    value = int(value)
+                setattr(font.info, key, value)
             elif data_type == "integerList" and key in INFO_ATTR_BITLIST:
                 setattr(font.info, key, _parse_bitlist(value))
             elif data_type == "integerList":
