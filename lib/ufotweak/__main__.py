@@ -3,11 +3,13 @@ import argparse
 import json
 from typing import Any, List, Optional, Sequence, Union
 from fontTools.ufoLib import fontInfoAttributesVersion3ValueData as infoAttrValueData
+from fontTools import designspaceLib
 from ufoLib2 import Font
 
 INFO_ATTR_BITLIST = {
     "openTypeHeadFlags": (0, 16),
     "openTypeOS2Selection": (0, 16),
+    "openTypeOS2Type": (0, 16),
     "openTypeOS2CodePageRanges": (0, 63),
     "openTypeOSUnicodeRanges": (0, 127),
 }
@@ -65,6 +67,23 @@ def process_lib(font, options):
             del font.lib[key]
 
 
+def process_designspace(designspace, options):
+    if options.instance:
+        instances = dict(a.split(":") for a in options.instance.split(","))
+
+
+def _parse_bitlist(string):
+    assert string.startswith("[") and string.endswith("]")
+    if string == "[]":
+        return []
+    return [1 << int(i.strip()) for i in string[1:-1].split(",")]
+def _parse_list(string):
+    assert string.startswith("[") and string.endswith("]")
+    return [int(i) for i in string[1:-1].split(",")]
+def _parse_dict(string):
+    pass
+
+
 def main(args=None):
     if not args:
         args = sys.argv[1:]
@@ -96,7 +115,7 @@ def main(args=None):
         else:
             continue
     parser_fontinfo.add_argument(
-        "ufos", metavar="UFO", nargs="*",
+        dest="paths", metavar="UFO", nargs="*",
         help="UFOs to be tweaked.",
     )
 
@@ -106,6 +125,10 @@ def main(args=None):
         description="UFO glyph",
     )
     parser_glyph.add_argument(
+        dest="paths", metavar="UFO", nargs="*",
+        help="UFOs to be tweaked.",
+    )
+    parser_glyph.add_argument(
         "--drop", metavar="STRING",
         help="Comma-separated list of glyph names to drop",
         )
@@ -113,15 +136,15 @@ def main(args=None):
         "--set-unicode", metavar="STRING",
         help="<name>=<unicode>[:<unicode>:...][,<name>=...]",
         )
-    parser_glyph.add_argument(
-        "ufos", metavar="UFO", nargs="*",
-        help="UFOs to be tweaked.",
-    )
 
     # UFO lib command
     parser_lib = subparsers.add_parser(
         "lib",
         description="UFO lib",
+    )
+    parser_lib.add_argument(
+        dest="paths", metavar="UFO", nargs="*",
+        help="UFOs to be tweaked.",
     )
     parser_lib.add_argument(
         "--update", metavar="JSON",
@@ -132,33 +155,56 @@ def main(args=None):
         "--drop", metavar="STRING",
         help="Comma separated list of lib keys to drop.",
     )
-    parser_lib.add_argument(
-        "ufos", metavar="UFO", nargs="*",
-        help="UFOs to be tweaked.",
+
+    # designspace command
+    parser_designspace = subparsers.add_parser(
+        "designspace",
+        description="Designspace",
     )
+    parser_fontinfo.add_argument(
+        "designspace", metavar="DESIGNSPACE", nargs="*",
+        help="DESIGNSPACE to be tweaked.",
+    )
+    parser_designspace.add_argument(
+        "--instance", metavar="STRING",
+        help="Instance",
+    )
+    parser_designspace.add_argument(
+        "--source", metavar="STRING",
+        help="Source",
+    )
+    for attribute in ["name", "familyname", "stylename", "filename", "layer"]:
+        parser_designspace.add_argument(
+            "--%s" % attribute,
+            metavar="STRING",
+            help="Source or instance %s attribute" % attribute,
+        )
+    for instance_attribute in ["postscriptfontname", "stylemapfamilyname",
+                               "stylemapstylename"]:
+        parser_designspace.add_argument(
+            "--%s" % instance_attribute,
+            metavar="STRING",
+            help="Instance %s attribute" % instance_attribute,
+        )
 
     options = parser.parse_args(args)
 
-    def _parse_bitlist(string):
-        assert string.startswith("[") and string.endswith("]")
-        return sum([1 << int(i.strip()) for i in string[1:-1].split(",")])
-    def _parse_list(string):
-        assert string.startswith("[") and string.endswith("]")
-        return [int(i) for i in string[1:-1].split(",")]
-    def _parse_dict(string):
-        pass
-
     print(options.command)
 
-    for path in options.ufos:
-        print(path)
-        font = Font(path)
+    for path in options.paths:
+        if options.command != "designspace":
+            font = Font(path)
+        else:
+            designspace = None
         if options.command == "fontinfo":
             process_fontinfo(font, options)
         elif options.command == "glyph":
             process_glyph(font, options)
         elif options.command == "lib":
             process_lib(font, options)
+        elif options.command == "designspace":
+            designspace = designspaceLib.DesignSpaceDocument.fromfile(path)
+            process_designspace(designspace, options)
 
         font.save()
 
