@@ -190,6 +190,8 @@ def main(args=None):
     options = parser.parse_args(args)
 
     print(options.command)
+    if not options.command:
+        return
 
     for path in options.paths:
         if options.command != "designspace":
