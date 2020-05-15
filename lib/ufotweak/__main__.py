@@ -19,8 +19,17 @@ def process_fontinfo(font, options):
     for key, value_data in sorted(infoAttrValueData.items()):
         data_type = value_data["type"]
         if not hasattr(options, key):
+            if not (options.drop and key in options.drop or
+                    options.update and key in options.update):
+                continue
+        if options.update and key in options.update:
+            value = options.update.get(key)
+        if options.drop and key in options.drop:
+            print("drop key", key)
+            delattr(font.info, key)
             continue
-        value = getattr(options, key)
+        else:
+            value = getattr(options, key)
         if value is not None:
             if value == "":
                 setattr(font.info, key, None)
@@ -54,6 +63,21 @@ def process_glyph(font, options):
             ]
             print(glyph_name, unicodes.split(":"))
             print(glyph_name, font[glyph_name].unicodes)
+    if options.drop_anchor:
+        anchor_name, glyph_names = options.drop_anchor.split(":")
+        if glyph_names == "*":
+            glyph_names = font.glyphOrder
+        else:
+            glyph_names = glyph_names.split(",")
+        for glyph_name in glyph_names:
+            glyph = font[glyph_name]
+            if anchor_name == "*":
+                anchors = [a for a in glyph.anchors]
+            else:
+                anchors = [a for a in glyph.anchors
+                           if a.name == anchor_name]
+            for anchor in anchors:
+                glyph.anchors.remove(anchor)
 
 
 def process_lib(font, options):
@@ -115,6 +139,15 @@ def main(args=None):
         else:
             continue
     parser_fontinfo.add_argument(
+        "--update", metavar="JSON",
+        help="JSON formatted fontinfo data "
+        "'{key: value, [...]}'",
+    )
+    parser_fontinfo.add_argument(
+        "--drop", metavar="STRING",
+        help="Comma separated list of fontinfo keys to drop.",
+    )
+    parser_fontinfo.add_argument(
         dest="paths", metavar="UFO", nargs="*",
         help="UFOs to be tweaked.",
     )
@@ -135,6 +168,11 @@ def main(args=None):
     parser_glyph.add_argument(
         "--set-unicode", metavar="STRING",
         help="<name>=<unicode>[:<unicode>:...][,<name>=...]",
+        )
+    parser_glyph.add_argument(
+        "--drop-anchor", metavar="STRING",
+        help="<anchor_name>=<glyph_name>[,<glyph_name>,...]\n"
+        "<anchor_name> and <glyph_name> may be '*' for any",
         )
 
     # UFO lib command
