@@ -54,6 +54,7 @@ def process_glyph(font, options):
        for glyph_name in glyph_names:
            if glyph_name in font:
             del font[glyph_name]
+            # TODO: remove glyph from features, groups and kerning
     if options.set_unicode:
         glyphs_unicodes = options.set_unicode.split(",")
         for glyph_unicodes in glyphs_unicodes:
@@ -100,7 +101,10 @@ def _parse_bitlist(string):
     assert string.startswith("[") and string.endswith("]")
     if string == "[]":
         return []
-    return [1 << int(i.strip()) for i in string[1:-1].split(",")]
+    # value = [1 << int(i.strip()) for i in string[1:-1].split(",")]
+    value = [int(i) for i in string[1:-1].split(",")]
+    print(value)
+    return value
 def _parse_list(string):
     assert string.startswith("[") and string.endswith("]")
     return [int(i) for i in string[1:-1].split(",")]
