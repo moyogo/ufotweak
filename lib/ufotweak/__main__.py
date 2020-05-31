@@ -79,6 +79,23 @@ def process_glyph(font, options):
                            if a.name == anchor_name]
             for anchor in anchors:
                 glyph.anchors.remove(anchor)
+    if options.drop_lib:
+        lib_key, glyph_names = options.drop_lib.split(":")
+        if glyph_names == "*":
+            glyph_names = set()
+            for layer in [layer for layer in font.layers]:
+                for glyph in layer:
+                    glyph_names.add(glyph.name)
+        else:
+            glyph_names = set(glyph_names.split(","))
+        for glyph_name in glyph_names:
+            for layer in font.layers:
+                if glyph_name in layer:
+                    glyph = layer[glyph_name]
+                    if lib_key == "*":
+                        del glyph.lib
+                    elif lib_key in glyph.lib:
+                        del glyph.lib[lib_key]
 
 
 def process_lib(font, options):
@@ -177,6 +194,11 @@ def main(args=None):
         "--drop-anchor", metavar="STRING",
         help="<anchor_name>=<glyph_name>[,<glyph_name>,...]\n"
         "<anchor_name> and <glyph_name> may be '*' for any",
+        )
+    parser_glyph.add_argument(
+        "--drop-lib", metavar="STRING",
+        help="<lib_key>=<glyph_name>[,<glyph_name>,...]\n"
+        "<lib_key> and <glyph_name> may be '*' for any",
         )
 
     # UFO lib command
