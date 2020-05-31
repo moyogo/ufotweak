@@ -67,7 +67,7 @@ def process_glyph(font, options):
     if options.drop_anchor:
         anchor_name, glyph_names = options.drop_anchor.split(":")
         if glyph_names == "*":
-            glyph_names = font.glyphOrder
+            glyph_names = [g.name for g in font]
         else:
             glyph_names = glyph_names.split(",")
         for glyph_name in glyph_names:
