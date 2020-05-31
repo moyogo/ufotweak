@@ -15,6 +15,63 @@ INFO_ATTR_BITLIST = {
 }
 
 
+class Renamer():
+    def __init__(self, font, mapping):
+        self.font = font
+        self.mapping = mapping
+
+    def rename(self):
+        glyph_names = [g.name for g in self.font]
+        for layer in self.font.layers:
+            for glyph in [g for g in layer]:
+                if glyph.name in self.mapping:
+                    new_name = self.mapping[glyph.name]
+                    layer.renameGlyph(glyph.name, new_name)
+        for group_name, group in self.font.groups.items():
+            for old, new in self.mapping.items():
+                if old in group:
+                    group.remove(old)
+                    group.append(new)
+        count = 0
+        for pair in self.font.kerning.keys():
+            for old, new in self.mapping.items():
+                if (old, old) == pair:
+                    pair = (new, new)
+                elif old == pair[0]:
+                    pair = (new, pair[1])
+                elif old == pair[1]:
+                    pair = (pair[0], new)
+        from fontTools.feaLib.parser import Parser
+        from io import StringIO
+        ast= Parser(
+            StringIO(str(self.font.features)),
+            glyphNames=glyph_names
+        ).parse()
+        def recursive_fea_glyph_rename(statement):
+            if hasattr(statement, "statements"):
+                for el in statement.statements:
+                    recursive_fea_glyph_rename(el)
+            if hasattr(statement, "glyphs"):
+                recursive_fea_glyph_rename(statement.glyphs)
+            if hasattr(statement, "prefix"):
+                recursive_fea_glyph_rename(statement.prefix)
+            if hasattr(statement, "suffix"):
+                recursive_fea_glyph_rename(statement.suffix)
+            if isinstance(statement, list):
+                for i, glyph_name in enumerate(statement):
+                    if isinstance(glyph_name, str):
+                        if glyph_name in self.mapping:
+                            statement.pop(i)
+                            statement.insert(i, self.mapping[glyph_name])
+                    elif hasattr(glyph_name, "glyph"):
+                        if glyph_name.glyph in self.mapping:
+                            glyph_name.glyph = self.mapping[glyph_name.glyph]
+                    elif hasattr(glyph_name, "glyphs"):
+                        recursive_fea_glyph_rename(glyph_name)
+        recursive_fea_glyph_rename(ast)
+        self.font.features.text = ast.asFea()
+
+
 def process_fontinfo(font, options):
     for key, value_data in sorted(infoAttrValueData.items()):
         data_type = value_data["type"]
@@ -96,6 +153,10 @@ def process_glyph(font, options):
                         del glyph.lib
                     elif lib_key in glyph.lib:
                         del glyph.lib[lib_key]
+    if options.rename:
+        mapping = dict(kv.split(":") for kv in options.rename.split(","))
+        renamer = Renamer(font, mapping)
+        renamer.rename()
 
 
 def process_lib(font, options):
@@ -200,6 +261,11 @@ def main(args=None):
         help="<lib_key>=<glyph_name>[,<glyph_name>,...]\n"
         "<lib_key> and <glyph_name> may be '*' for any",
         )
+    parser_glyph.add_argument(
+        "--rename", metavar="STRING",
+        help="<old>:<new>[,<old>:<new>,...]\n"
+        "<old> is the current name and <new> is the new name"
+    )
 
     # UFO lib command
     parser_lib = subparsers.add_parser(
