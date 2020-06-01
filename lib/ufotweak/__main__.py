@@ -20,6 +20,35 @@ class Renamer():
         self.font = font
         self.mapping = mapping
 
+    @classmethod
+    def from_glyphsdata(cls, font, glyphsdata):
+        from ufo2ft.util import makeUnicodeToGlyphNameMapping
+        import xml.etree.ElementTree
+        from importlib.resources import open_binary
+        with open(glyphsdata) as glyphdata_file:
+            glyph_data = xml.etree.ElementTree.parse(glyphdata_file).getroot()
+        font_unicodes = makeUnicodeToGlyphNameMapping(font)
+        gd_unicodes = dict()
+        for glyph in glyph_data:
+            name = glyph.attrib["name"]
+            uni = glyph.attrib.get("unicode")
+            alt_names = glyph.attrib.get("altNames")
+            prod_name = glyph.attrib.get("production")
+            if uni:
+                uni = int(uni, 16)
+                gd_unicodes[uni] = []
+                if name:
+                    gd_unicodes[uni].append(name)
+                if alt_names:
+                    gd_unicodes[uni].extend(alt_names.split(", "))
+                if prod_name:
+                    gd_unicodes[uni].append(prod_name)
+        mapping = dict()
+        for uni, ufo_name in font_unicodes.items():
+            if uni in gd_unicodes:
+                mapping[ufo_name] = gd_unicodes[uni][0]
+        return cls(font, mapping)
+
     def rename(self):
         glyph_names = [g.name for g in self.font]
         for layer in self.font.layers:
@@ -57,6 +86,13 @@ class Renamer():
                 recursive_fea_glyph_rename(statement.prefix)
             if hasattr(statement, "suffix"):
                 recursive_fea_glyph_rename(statement.suffix)
+            if hasattr(statement, "replacement"):
+                statement.replacement = self.mapping.get(
+                    statement.replacement,
+                    statement.replacement
+                )
+            if hasattr(statement, "replacements"):
+                recursive_fea_glyph_rename(statement.replacements)
             if isinstance(statement, list):
                 for i, glyph_name in enumerate(statement):
                     if isinstance(glyph_name, str):
@@ -156,6 +192,9 @@ def process_glyph(font, options):
     if options.rename:
         mapping = dict(kv.split(":") for kv in options.rename.split(","))
         renamer = Renamer(font, mapping)
+        renamer.rename()
+    if options.rename_glyphsdata:
+        renamer = Renamer.from_glyphsdata(font, options.rename_glyphsdata)
         renamer.rename()
 
 
@@ -265,6 +304,11 @@ def main(args=None):
         "--rename", metavar="STRING",
         help="<old>:<new>[,<old>:<new>,...]\n"
         "<old> is the current name and <new> is the new name"
+    )
+    parser_glyph.add_argument(
+        "--rename-glyphsdata", metavar="GLYPHSDATA",
+        help="GLYPHSDATA"
+        "GlyphsData.xml file"
     )
 
     # UFO lib command
