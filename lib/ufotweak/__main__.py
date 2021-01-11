@@ -5,6 +5,8 @@ from typing import Any, List, Optional, Sequence, Union
 from fontTools.ufoLib import fontInfoAttributesVersion3ValueData as infoAttrValueData
 from fontTools import designspaceLib
 from ufoLib2 import Font
+from fontTools.pens.recordingPen import RecordingPen
+from fontTools.pens.roundingPen import RoundingPen
 
 INFO_ATTR_BITLIST = {
     "openTypeHeadFlags": (0, 16),
@@ -53,6 +55,9 @@ class Renamer():
         glyph_names = [g.name for g in self.font]
         for layer in self.font.layers:
             for glyph in [g for g in layer]:
+                for component in glyph.components:
+                    if component.baseGlyph in self.mapping:
+                        component.baseGlyph = self.mapping[component.baseGlyph]
                 if glyph.name in self.mapping:
                     new_name = self.mapping[glyph.name]
                     layer.renameGlyph(glyph.name, new_name)
@@ -116,7 +121,10 @@ def process_fontinfo(font, options):
                     options.update and key in options.update):
                 continue
         if options.update and key in options.update:
-            value = options.update.get(key)
+            lib = json.loads(options.update)
+            for key, value in lib.items():
+                setattr(font.info, key, value)
+            continue
         if options.drop and key in options.drop:
             print("drop key", key)
             delattr(font.info, key)
@@ -157,6 +165,10 @@ def process_glyph(font, options):
             ]
             print(glyph_name, unicodes.split(":"))
             print(glyph_name, font[glyph_name].unicodes)
+    if options.drop_unicode:
+        glyphs_names = options.drop_unicode.split(",")
+        for glyph_name in glyphs_names:
+            font[glyph_name].unicodes = None
     if options.drop_anchor:
         anchor_name, glyph_names = options.drop_anchor.split(":")
         if glyph_names == "*":
@@ -196,13 +208,45 @@ def process_glyph(font, options):
     if options.rename_glyphsdata:
         renamer = Renamer.from_glyphsdata(font, options.rename_glyphsdata)
         renamer.rename()
-
+    if options.swap_unicodes:
+        mapping = dict(kv.split(":") for kv in options.swap_unicodes.split(","))
+        for old, new in mapping.items():
+            unicodes = font[old].unicodes
+            font[old].unicodes = font[new].unicodes
+            font[new].unicodes = unicodes
+    if options.swap_components:
+        mapping = dict(kv.split(":") for kv in options.swap_components.split(","))
+        glyphs = [g for g in font
+                  if g.components and
+                  any(c.baseGlyph in mapping for c in g.components)]
+        for old, new in mapping.items():
+            for glyph in glyphs:
+                if glyph.name == new:
+                    continue
+                for component in glyph.components:
+                    if component.baseGlyph == old:
+                        component.baseGlyph = new
+    if options.round:
+        glyphnames = options.round.split(",")
+        if "*" in glyphnames:
+            glyphnames = [glyph.name for glyph in font]
+        def round_glyph(glyph):
+            recpen = RecordingPen()
+            roundpen = RoundingPen(recpen)
+            glyph.draw(roundpen)
+            glyph.clearContours()
+            glyph.clearComponents()
+            recpen.replay(glyph.getPen())
+        for name in glyphnames:
+            round_glyph(font[name])
 
 def process_lib(font, options):
     if options.update:
         print(options.update)
         lib = json.loads(options.update)
         font.lib.update(lib)
+    if options.dump_key:
+        print(json.dumps(font.lib[options.dump_key]))
     if options.drop:
         keys = options.drop.replace(", ", ",").split(",")
         for key in keys:
@@ -291,13 +335,28 @@ def main(args=None):
         help="<name>=<unicode>[:<unicode>:...][,<name>=...]",
         )
     parser_glyph.add_argument(
+        "--drop-unicode", metavar="STRING",
+        help="<name>[,<name>,...]",
+        )
+    parser_glyph.add_argument(
+        "--swap-unicodes", metavar="STRING",
+        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
+        "<glyph1> and <glyph2> are glyph that will swap unicodes"
+    )
+    parser_glyph.add_argument(
+        "--swap-components", metavar="STRING",
+        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
+        "Component glyphs will have <glyph1> swapped for <glyph2>,"\
+        " except <glyphs2> if it uses <glyph1> as a component."
+    )
+    parser_glyph.add_argument(
         "--drop-anchor", metavar="STRING",
-        help="<anchor_name>=<glyph_name>[,<glyph_name>,...]\n"
+        help="<anchor_name>:<glyph_name>[,<glyph_name>,...]\n"
         "<anchor_name> and <glyph_name> may be '*' for any",
         )
     parser_glyph.add_argument(
         "--drop-lib", metavar="STRING",
-        help="<lib_key>=<glyph_name>[,<glyph_name>,...]\n"
+        help="<lib_key>:<glyph_name>[,<glyph_name>,...]\n"
         "<lib_key> and <glyph_name> may be '*' for any",
         )
     parser_glyph.add_argument(
@@ -309,6 +368,12 @@ def main(args=None):
         "--rename-glyphsdata", metavar="GLYPHSDATA",
         help="GLYPHSDATA"
         "GlyphsData.xml file"
+    )
+    parser_glyph.add_argument(
+        "--round", metavar="STRING",
+        help="<glyph>[,<glyph>,...]\n"
+        "<glyph> is a glyph that should be rounded.\n"
+        "<glyph> may be '*' for any."
     )
 
     # UFO lib command
@@ -324,6 +389,11 @@ def main(args=None):
         "--update", metavar="JSON",
         help="JSON formatted lib data "
         "'{key: value, [...]}'",
+    )
+    parser_lib.add_argument(
+        "--dump-key", metavar="KEY",
+        help="Print JSON formatted lib data "
+        "'key'",
     )
     parser_lib.add_argument(
         "--drop", metavar="STRING",
