@@ -25,6 +25,7 @@ class Updater():
         print("all_glyphs before", self._all_glyphs)
         self._update_glyphs()
         print("all_glyphs after", self._all_glyphs)
+        self._update_kerning()
 
     def _update_glyphs(self):
         # TODO different layers
@@ -53,6 +54,9 @@ class Updater():
             all_glyphs.add(name)
             self._collect_components(self.source[name])
         all_glyphs.add(glyph.name)
+
+    def update_kerning(self):
+        pass
 
 
 def main(args=None):
