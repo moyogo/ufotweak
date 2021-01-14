@@ -7,6 +7,7 @@ from fontTools import designspaceLib
 from ufoLib2 import Font
 from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.roundingPen import RoundingPen
+from glyphConstruction import GlyphConstructionBuilder
 
 INFO_ATTR_BITLIST = {
     "openTypeHeadFlags": (0, 16),
@@ -201,6 +202,13 @@ def process_glyph(font, options):
                         del glyph.lib
                     elif lib_key in glyph.lib:
                         del glyph.lib[lib_key]
+    if options.construction:
+        for construction in options.construction:
+            glyph = GlyphConstructionBuilder(construction, font)
+            new_glyph = font.newGlyph(glyph.name)
+            glyph.draw(new_glyph.getPen())
+            new_glyph.unicode = glyph.unicode
+            new_glyph.width = glyph.width
     if options.rename:
         mapping = dict(kv.split(":") for kv in options.rename.split(","))
         renamer = Renamer(font, mapping)
@@ -358,6 +366,11 @@ def main(args=None):
         "--drop-lib", metavar="STRING",
         help="<lib_key>:<glyph_name>[,<glyph_name>,...]\n"
         "<lib_key> and <glyph_name> may be '*' for any",
+        )
+    parser_glyph.add_argument(
+        "--construction", metavar="STRING",
+        nargs='+',
+        help="<glyphConstruction>",
         )
     parser_glyph.add_argument(
         "--rename", metavar="STRING",
