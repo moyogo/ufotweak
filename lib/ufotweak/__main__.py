@@ -1,13 +1,15 @@
 import sys
 import argparse
 import json
-from typing import Any, List, Optional, Sequence, Union
 from fontTools.ufoLib import fontInfoAttributesVersion3ValueData as infoAttrValueData
 from fontTools import designspaceLib
 from ufoLib2 import Font
 from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.roundingPen import RoundingPen
-from glyphConstruction import GlyphConstructionBuilder
+try:
+    from glyphConstruction import GlyphConstructionBuilder
+except ImportError:
+    print("Cannot use glyphConstruction as it is not installed.")
 
 INFO_ATTR_BITLIST = {
     "openTypeHeadFlags": (0, 16),
@@ -27,7 +29,6 @@ class Renamer():
     def from_glyphsdata(cls, font, glyphsdata):
         from ufo2ft.util import makeUnicodeToGlyphNameMapping
         import xml.etree.ElementTree
-        from importlib.resources import open_binary
         with open(glyphsdata) as glyphdata_file:
             glyph_data = xml.etree.ElementTree.parse(glyphdata_file).getroot()
         font_unicodes = makeUnicodeToGlyphNameMapping(font)
@@ -78,10 +79,11 @@ class Renamer():
                     pair = (pair[0], new)
         from fontTools.feaLib.parser import Parser
         from io import StringIO
-        ast= Parser(
+        ast = Parser(
             StringIO(str(self.font.features)),
             glyphNames=glyph_names
         ).parse()
+
         def recursive_fea_glyph_rename(statement):
             if hasattr(statement, "statements"):
                 for el in statement.statements:
@@ -146,17 +148,17 @@ def process_fontinfo(font, options):
                 setattr(font.info, key, _parse_bitlist(value))
             elif data_type == "integerList":
                 setattr(font.info, key, _parse_list(value))
-            elif data_type =="dictList":
+            elif data_type == "dictList":
                 setattr(font.info, key, _parse_dict(value))
 
 
 def process_glyph(font, options):
     if options.drop:
-       glyph_names = options.drop.replace(", ", ",").split(",")
-       for glyph_name in glyph_names:
-           if glyph_name in font:
-            del font[glyph_name]
-            # TODO: remove glyph from features, groups and kerning
+        glyph_names = options.drop.replace(", ", ",").split(",")
+        for glyph_name in glyph_names:
+            if glyph_name in font:
+                del font[glyph_name]
+                # TODO: remove glyph from features, groups and kerning
     if options.set_unicode:
         glyphs_unicodes = options.set_unicode.split(",")
         for glyph_unicodes in glyphs_unicodes:
@@ -170,6 +172,16 @@ def process_glyph(font, options):
         glyphs_names = options.drop_unicode.split(",")
         for glyph_name in glyphs_names:
             font[glyph_name].unicodes = None
+    if options.set_postscriptName:
+        glyphs_poscriptName = {
+            k: v for (k, v) in [e.split(":") for e in options.set_postscriptName.split(",")]
+        }
+        if not font.lib.get("public.postscriptNames"):
+            font.lib["public.postscriptNames"] = dict()
+        font.lib["public.postscriptNames"].update(glyphs_poscriptName)
+    if options.drop_postscriptName:
+        for glyph_name in options.drop_postscriptName.split(","):
+            del font.lib["public.postscriptNames"][glyph_name]
     if options.drop_anchor:
         anchor_name, glyph_names = options.drop_anchor.split(":")
         if glyph_names == "*":
@@ -203,12 +215,17 @@ def process_glyph(font, options):
                     elif lib_key in glyph.lib:
                         del glyph.lib[lib_key]
     if options.construction:
-        for construction in options.construction:
-            glyph = GlyphConstructionBuilder(construction, font)
-            new_glyph = font.newGlyph(glyph.name)
-            glyph.draw(new_glyph.getPen())
-            new_glyph.unicode = glyph.unicode
-            new_glyph.width = glyph.width
+        try:
+            GlyphConstructionBuilder
+        except NameError:
+            print("glyphConstruction is not installed.")
+        else:
+            for construction in options.construction:
+                glyph = GlyphConstructionBuilder(construction, font)
+                new_glyph = font.newGlyph(glyph.name)
+                glyph.draw(new_glyph.getPen())
+                new_glyph.unicode = glyph.unicode
+                new_glyph.width = glyph.width
     if options.rename:
         mapping = dict(kv.split(":") for kv in options.rename.split(","))
         renamer = Renamer(font, mapping)
@@ -238,6 +255,7 @@ def process_glyph(font, options):
         glyphnames = options.round.split(",")
         if "*" in glyphnames:
             glyphnames = [glyph.name for glyph in font]
+
         def round_glyph(glyph):
             recpen = RecordingPen()
             roundpen = RoundingPen(recpen)
@@ -245,6 +263,7 @@ def process_glyph(font, options):
             glyph.clearContours()
             glyph.clearComponents()
             recpen.replay(glyph.getPen())
+
         for name in glyphnames:
             round_glyph(font[name])
 
@@ -351,6 +370,14 @@ def main(args=None):
         help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
         "<glyph1> and <glyph2> are glyph that will swap unicodes"
     )
+    parser_glyph.add_argument(
+        "--set-postscriptName", metavar="STRING",
+        help="<glyph>:<name>[,<glyph>:<name>,...]",
+        )
+    parser_glyph.add_argument(
+        "--drop-postscriptName", metavar="STRING",
+        help="<glyph>[,<glyph>,...]",
+        )
     parser_glyph.add_argument(
         "--swap-components", metavar="STRING",
         help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"

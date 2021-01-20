@@ -17,7 +17,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ufotweak = ufotweak.cli:main",
+            "ufotweak = ufotweak.__main__:main",
         ],
     },
     keywords="font, typeface, ufo",
@@ -36,4 +36,3 @@ setup(
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
 )
-
