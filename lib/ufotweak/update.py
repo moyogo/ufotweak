@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 from ufoLib2 import Font
 
 
-
 class Updater():
     def __init__(self, source, target, glyphs, layers, overwrite_components=True):
         self.source = source
@@ -90,6 +89,7 @@ def main(args=None):
     updater = Updater(source, target, glyphs, layers, overwrite_components)
     print("# Saving")
     updater.font.save()
+
 
 if __name__ == "__main__":
     main()
