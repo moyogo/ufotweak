@@ -14,6 +14,7 @@ setup(
     install_requires=[
         "fonttools[ufo]",
         "ufolib2",
+        # "glyphConstruction",
     ],
     entry_points={
         "console_scripts": [

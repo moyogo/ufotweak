@@ -3,9 +3,12 @@ import argparse
 import json
 from fontTools.ufoLib import fontInfoAttributesVersion3ValueData as infoAttrValueData
 from fontTools import designspaceLib
-from ufoLib2 import Font
 from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.roundingPen import RoundingPen
+from ufo2ft.filters.propagateAnchors import PropagateAnchorsFilter
+from ufo2ft.filters.decomposeComponents import DecomposeComponentsFilter
+from ufoLib2 import Font
+
 try:
     from glyphConstruction import GlyphConstructionBuilder
 except ImportError:
@@ -20,7 +23,7 @@ INFO_ATTR_BITLIST = {
 }
 
 
-class Renamer():
+class Renamer:
     def __init__(self, font, mapping):
         self.font = font
         self.mapping = mapping
@@ -29,6 +32,7 @@ class Renamer():
     def from_glyphsdata(cls, font, glyphsdata):
         from ufo2ft.util import makeUnicodeToGlyphNameMapping
         import xml.etree.ElementTree
+
         with open(glyphsdata) as glyphdata_file:
             glyph_data = xml.etree.ElementTree.parse(glyphdata_file).getroot()
         font_unicodes = makeUnicodeToGlyphNameMapping(font)
@@ -54,7 +58,10 @@ class Renamer():
         return cls(font, mapping)
 
     def rename(self):
-        glyph_names = [g.name for g in self.font]
+        glyph_names = set(g.name for g in self.font)
+        # Update with glyphOrder and postscriptNames in case the features have old names
+        glyph_names.update(set(self.font.lib.get("public.glyphOrder")))
+        glyph_names.update(set(self.font.lib.get("public.postscriptNames")))
         for layer in self.font.layers:
             for glyph in [g for g in layer]:
                 for component in glyph.components:
@@ -62,66 +69,161 @@ class Renamer():
                         component.baseGlyph = self.mapping[component.baseGlyph]
                 if glyph.name in self.mapping:
                     new_name = self.mapping[glyph.name]
+                    if new_name in layer:
+                        print(f"{new_name} already in font")
+                        continue
                     layer.renameGlyph(glyph.name, new_name)
-        for group_name, group in self.font.groups.items():
+
+                comp_info = glyph.lib.get("com.schriftgestaltung.Glyphs.ComponentInfo")
+                if comp_info:
+                    for ci in comp_info:
+                        name = ci.get("name")
+                        if name in self.mapping:
+                            ci["name"] = self.mapping[name]
+
+                mks = [f"com.schriftgestaltung.Glyphs.glyph.{m}MetricsKey" for m in ["left", "right", "width"]]
+                for mk in mks:
+                    value = glyph.lib.get(mk)
+                    if not value:
+                        continue
+                    prefix = ""
+                    key = value
+                    if value.startswith("="):
+                        key = value[1:]
+                        prefix = "="
+                    elif value.startswith("|="):
+                        key = value[2:]
+                        prefix = "|="
+
+                    if key in self.mapping:
+                        glyph.lib[mk] = prefix + self.mapping[key]
+
+        # Kerning
+        group_mapping = dict()
+        for group_name, group in list(self.font.groups.items()):
             for old, new in self.mapping.items():
                 if old in group:
+                    index = group.index(old)
                     group.remove(old)
-                    group.append(new)
-        count = 0
-        for pair in self.font.kerning.keys():
+                    group.insert(index, new)
+
             for old, new in self.mapping.items():
+                if group_name[len("public.kern1.") :] == old:
+                    new_group_name = group_name[: len("public.kern1.")] + new
+                    del self.font.groups[group_name]
+                    self.font.groups[new_group_name] = group
+                    group_mapping[group_name] = new_group_name
+                    break
+        # count = 0
+        mapping = self.mapping
+        mapping.update(group_mapping)
+        for pair in list(self.font.kerning.keys()):
+            old_pair = pair
+            value = self.font.kerning[old_pair]
+            for old, new in mapping.items():
                 if (old, old) == pair:
                     pair = (new, new)
+                    break
                 elif old == pair[0]:
                     pair = (new, pair[1])
+                    if pair[1] != old_pair[1]:
+                        break
                 elif old == pair[1]:
                     pair = (pair[0], new)
+                    if pair[0] != old_pair[0]:
+                        break
+
+            if old_pair != pair:
+                del self.font.kerning[old_pair]
+                self.font.kerning[pair] = value
+                continue
         from fontTools.feaLib.parser import Parser
         from io import StringIO
-        ast = Parser(
-            StringIO(str(self.font.features)),
-            glyphNames=glyph_names
-        ).parse()
 
         def recursive_fea_glyph_rename(statement):
             if hasattr(statement, "statements"):
+                new = []
                 for el in statement.statements:
-                    recursive_fea_glyph_rename(el)
+                    s = recursive_fea_glyph_rename(el)
+                    new.append(s)
+                statement.statements = new
+
             if hasattr(statement, "glyphs"):
-                recursive_fea_glyph_rename(statement.glyphs)
+                statement.glyphs = recursive_fea_glyph_rename(statement.glyphs)
             if hasattr(statement, "prefix"):
-                recursive_fea_glyph_rename(statement.prefix)
+                statement.prefix = recursive_fea_glyph_rename(statement.prefix)
             if hasattr(statement, "suffix"):
-                recursive_fea_glyph_rename(statement.suffix)
+                statement.suffix = recursive_fea_glyph_rename(statement.suffix)
+            if hasattr(statement, "old_prefix"):
+                statement.suffix = recursive_fea_glyph_rename(statement.old_prefix)
+            if hasattr(statement, "old_suffix"):
+                statement.suffix = recursive_fea_glyph_rename(statement.old_suffix)
             if hasattr(statement, "replacement"):
-                statement.replacement = self.mapping.get(
-                    statement.replacement,
-                    statement.replacement
-                )
+                if isinstance(statement.replacement, str):
+                    statement.replacement = self.mapping.get(
+                        statement.replacement, statement.replacement
+                    )
+                elif isinstance(statement.replacement, tuple):
+                    statement.replacement = recursive_fea_glyph_rename(
+                        statement.replacement
+                    )
             if hasattr(statement, "replacements"):
-                recursive_fea_glyph_rename(statement.replacements)
-            if isinstance(statement, list):
+                statement.replacements = recursive_fea_glyph_rename(
+                    statement.replacements
+                )
+            if hasattr(statement, "glyph"):
+                statement.glyph = self.mapping.get(statement.glyph, statement.glyph)
+            if isinstance(statement, (tuple, list)):
                 for i, glyph_name in enumerate(statement):
                     if isinstance(glyph_name, str):
                         if glyph_name in self.mapping:
-                            statement.pop(i)
-                            statement.insert(i, self.mapping[glyph_name])
+                            if isinstance(statement, tuple):
+                                statement = tuple(
+                                    [
+                                        *statement[:i],
+                                        self.mapping[glyph_name],
+                                        *statement[i + 1 :],
+                                    ]
+                                )
+                            else:
+                                statement.pop(i)
+                                statement.insert(i, self.mapping[glyph_name])
                     elif hasattr(glyph_name, "glyph"):
                         if glyph_name.glyph in self.mapping:
                             glyph_name.glyph = self.mapping[glyph_name.glyph]
                     elif hasattr(glyph_name, "glyphs"):
-                        recursive_fea_glyph_rename(glyph_name)
-        recursive_fea_glyph_rename(ast)
+                        glyph_name.glyphs = recursive_fea_glyph_rename(
+                            glyph_name.glyphs
+                        )
+            return statement
+
+        ast = Parser(StringIO(str(self.font.features)), glyphNames=glyph_names).parse()
+        ast = recursive_fea_glyph_rename(ast)
         self.font.features.text = ast.asFea()
+
+        glyph_order = [
+            self.mapping.get(n, n) for n in self.font.lib.get("public.glyphOrder")
+        ]
+        if glyph_order:
+            self.font.lib["public.glyphOrder"] = glyph_order
+        postscript_names = {
+            self.mapping.get(k, k): v
+            for k, v in self.font.lib.get("public.postscriptNames", {}).items()
+        }
+        if postscript_names:
+            self.font.lib["public.postscriptNames"] = postscript_names
 
 
 def process_fontinfo(font, options):
     for key, value_data in sorted(infoAttrValueData.items()):
         data_type = value_data["type"]
         if not hasattr(options, key):
-            if not (options.drop and key in options.drop or
-                    options.update and key in options.update):
+            if not (
+                options.drop
+                and key in options.drop
+                or options.update
+                and key in options.update
+            ):
                 continue
         if options.update and key in options.update:
             lib = json.loads(options.update)
@@ -159,13 +261,22 @@ def process_glyph(font, options):
             if glyph_name in font:
                 del font[glyph_name]
                 # TODO: remove glyph from features, groups and kerning
+
+            if glyph_name in font.lib.get("public.glyphOrder"):
+                font.lib["glyphOrder"].remove(glyph_name)
+
+            if glyph_name in font.lib.get("public.postscriptNames"):
+                del font.lib["public.postscriptNames"][glyph_name]
+
+            for group in font.groups:
+                if glyph_name in group:
+                    group.remove(glyph_name)
+
     if options.set_unicode:
         glyphs_unicodes = options.set_unicode.split(",")
         for glyph_unicodes in glyphs_unicodes:
             glyph_name, unicodes = glyph_unicodes.split("=")
-            font[glyph_name].unicodes = [
-                int(c, 16) for c in unicodes.split(":")
-            ]
+            font[glyph_name].unicodes = [int(c, 16) for c in unicodes.split(":")]
             print(glyph_name, unicodes.split(":"))
             print(glyph_name, font[glyph_name].unicodes)
     if options.drop_unicode:
@@ -174,7 +285,8 @@ def process_glyph(font, options):
             font[glyph_name].unicodes = None
     if options.set_postscriptName:
         glyphs_poscriptName = {
-            k: v for (k, v) in [e.split(":") for e in options.set_postscriptName.split(",")]
+            k: v
+            for (k, v) in [e.split(":") for e in options.set_postscriptName.split(",")]
         }
         if not font.lib.get("public.postscriptNames"):
             font.lib["public.postscriptNames"] = dict()
@@ -193,10 +305,15 @@ def process_glyph(font, options):
             if anchor_name == "*":
                 anchors = [a for a in glyph.anchors]
             else:
-                anchors = [a for a in glyph.anchors
-                           if a.name == anchor_name]
+                anchors = [a for a in glyph.anchors if a.name == anchor_name]
             for anchor in anchors:
                 glyph.anchors.remove(anchor)
+    if options.rename_anchor:
+        mapping = dict(kv.split(":") for kv in options.rename_anchor.split(","))
+        for glyph in font:
+            for anchor in glyph.anchors:
+                if anchor.name in mapping:
+                    anchor.name = mapping[anchor.name]
     if options.drop_lib:
         lib_key, glyph_names = options.drop_lib.split(":")
         if glyph_names == "*":
@@ -221,11 +338,28 @@ def process_glyph(font, options):
             print("glyphConstruction is not installed.")
         else:
             for construction in options.construction:
-                glyph = GlyphConstructionBuilder(construction, font)
-                new_glyph = font.newGlyph(glyph.name)
-                glyph.draw(new_glyph.getPen())
-                new_glyph.unicode = glyph.unicode
-                new_glyph.width = glyph.width
+                construction_glyph = GlyphConstructionBuilder(construction, font)
+                if construction_glyph.name in font:
+                    glyph = font[construction_glyph.name]
+                    glyph.clear()
+                else:
+                    glyph = font.newGlyph(construction_glyph.name)
+                construction_glyph.draw(glyph.getPen())
+                if construction_glyph.unicode:
+                    glyph.unicode = construction_glyph.unicode
+                glyph.width = construction_glyph.width
+    if options.copy_width:
+        mapping = dict(kv.split(":") for kv in options.copy_width.split(","))
+        for source, target in mapping.items():
+            font[target].width = font[source].width
+    if options.propagateAnchors:
+        glyph_names = options.propagateAnchors.split(",")
+        philter = PropagateAnchorsFilter(include=glyph_names)
+        print(philter(font))
+    if options.decompose:
+        glyph_names = options.decompose.split(",")
+        philter = DecomposeComponentsFilter(include=glyph_names)
+        print(philter(font))
     if options.rename:
         mapping = dict(kv.split(":") for kv in options.rename.split(","))
         renamer = Renamer(font, mapping)
@@ -241,9 +375,11 @@ def process_glyph(font, options):
             font[new].unicodes = unicodes
     if options.swap_components:
         mapping = dict(kv.split(":") for kv in options.swap_components.split(","))
-        glyphs = [g for g in font
-                  if g.components and
-                  any(c.baseGlyph in mapping for c in g.components)]
+        glyphs = [
+            g
+            for g in font
+            if g.components and any(c.baseGlyph in mapping for c in g.components)
+        ]
         for old, new in mapping.items():
             for glyph in glyphs:
                 if glyph.name == new:
@@ -263,9 +399,13 @@ def process_glyph(font, options):
             glyph.clearContours()
             glyph.clearComponents()
             recpen.replay(glyph.getPen())
+            for anchor in glyph.anchors:
+                anchor.x = round(anchor.x)
+                anchor.y = round(anchor.y)
 
         for name in glyphnames:
             round_glyph(font[name])
+
 
 def process_lib(font, options):
     if options.update:
@@ -293,9 +433,13 @@ def _parse_bitlist(string):
     value = [int(i) for i in string[1:-1].split(",")]
     print(value)
     return value
+
+
 def _parse_list(string):
     assert string.startswith("[") and string.endswith("]")
     return [int(i) for i in string[1:-1].split(",")]
+
+
 def _parse_dict(string):
     pass
 
@@ -331,16 +475,19 @@ def main(args=None):
         else:
             continue
     parser_fontinfo.add_argument(
-        "--update", metavar="JSON",
-        help="JSON formatted fontinfo data "
-        "'{key: value, [...]}'",
+        "--update",
+        metavar="JSON",
+        help="JSON formatted fontinfo data " "'{key: value, [...]}'",
     )
     parser_fontinfo.add_argument(
-        "--drop", metavar="STRING",
+        "--drop",
+        metavar="STRING",
         help="Comma separated list of fontinfo keys to drop.",
     )
     parser_fontinfo.add_argument(
-        dest="paths", metavar="UFO", nargs="*",
+        dest="paths",
+        metavar="UFO",
+        nargs="*",
         help="UFOs to be tweaked.",
     )
 
@@ -350,70 +497,106 @@ def main(args=None):
         description="UFO glyph",
     )
     parser_glyph.add_argument(
-        dest="paths", metavar="UFO", nargs="*",
+        dest="paths",
+        metavar="UFO",
+        nargs="*",
         help="UFOs to be tweaked.",
     )
     parser_glyph.add_argument(
-        "--drop", metavar="STRING",
+        "--drop",
+        metavar="STRING",
         help="Comma-separated list of glyph names to drop",
-        )
+    )
     parser_glyph.add_argument(
-        "--set-unicode", metavar="STRING",
+        "--set-unicode",
+        metavar="STRING",
         help="<name>=<unicode>[:<unicode>:...][,<name>=...]",
-        )
+    )
     parser_glyph.add_argument(
-        "--drop-unicode", metavar="STRING",
+        "--drop-unicode",
+        metavar="STRING",
         help="<name>[,<name>,...]",
-        )
-    parser_glyph.add_argument(
-        "--swap-unicodes", metavar="STRING",
-        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
-        "<glyph1> and <glyph2> are glyph that will swap unicodes"
     )
     parser_glyph.add_argument(
-        "--set-postscriptName", metavar="STRING",
+        "--swap-unicodes",
+        metavar="STRING",
+        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
+        "<glyph1> and <glyph2> are glyph that will swap unicodes",
+    )
+    parser_glyph.add_argument(
+        "--set-postscriptName",
+        metavar="STRING",
         help="<glyph>:<name>[,<glyph>:<name>,...]",
-        )
-    parser_glyph.add_argument(
-        "--drop-postscriptName", metavar="STRING",
-        help="<glyph>[,<glyph>,...]",
-        )
-    parser_glyph.add_argument(
-        "--swap-components", metavar="STRING",
-        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
-        "Component glyphs will have <glyph1> swapped for <glyph2>,"\
-        " except <glyphs2> if it uses <glyph1> as a component."
     )
     parser_glyph.add_argument(
-        "--drop-anchor", metavar="STRING",
+        "--drop-postscriptName",
+        metavar="STRING",
+        help="<glyph>[,<glyph>,...]",
+    )
+    parser_glyph.add_argument(
+        "--swap-components",
+        metavar="STRING",
+        help="<glyph1>:<glyph2>[,<glyph1>:<glyph2>,...]\n"
+        "Component glyphs will have <glyph1> swapped for <glyph2>,"
+        " except <glyphs2> if it uses <glyph1> as a component.",
+    )
+    parser_glyph.add_argument(
+        "--drop-anchor",
+        metavar="STRING",
         help="<anchor_name>:<glyph_name>[,<glyph_name>,...]\n"
         "<anchor_name> and <glyph_name> may be '*' for any",
-        )
+    )
     parser_glyph.add_argument(
-        "--drop-lib", metavar="STRING",
+        "--rename-anchor",
+        metavar="STRING",
+        help="<anchor1>:<anchor2>[,<anchor1>:<anchor2>,...]",
+    )
+    parser_glyph.add_argument(
+        "--drop-lib",
+        metavar="STRING",
         help="<lib_key>:<glyph_name>[,<glyph_name>,...]\n"
         "<lib_key> and <glyph_name> may be '*' for any",
-        )
+    )
     parser_glyph.add_argument(
-        "--construction", metavar="STRING",
-        nargs='+',
+        "--construction",
+        metavar="STRING",
+        nargs="+",
         help="<glyphConstruction>",
-        )
+    )
     parser_glyph.add_argument(
-        "--rename", metavar="STRING",
+        "--copy-width",
+        metavar="STRING",
+        help="<source>:<target>[,<source>:<target>]\n"
+        "<source> is the glyph with the width to copy, <target> is the glyph"
+        "where the width is applied.",
+    )
+    parser_glyph.add_argument(
+        "--propagateAnchors",
+        metavar="STRING",
+        help="<glyph>[,<glyph>,...]",
+    )
+    parser_glyph.add_argument(
+        "--decompose",
+        metavar="STring",
+        help="<glyph>[,<glyph],...]",
+    )
+    parser_glyph.add_argument(
+        "--rename",
+        metavar="STRING",
         help="<old>:<new>[,<old>:<new>,...]\n"
-        "<old> is the current name and <new> is the new name"
+        "<old> is the current name and <new> is the new name",
     )
     parser_glyph.add_argument(
-        "--rename-glyphsdata", metavar="GLYPHSDATA",
-        help="GLYPHSDATA"
-        "GlyphsData.xml file"
+        "--rename-glyphsdata",
+        metavar="GLYPHSDATA",
+        help="GLYPHSDATA" "GlyphsData.xml file",
     )
     parser_glyph.add_argument(
-        "--round", metavar="STRING",
+        "--round",
+        metavar="STRING",
         help="<glyph>[,<glyph>,...]\n"
         "<glyph> is a glyph that should be rounded.\n"
-        "<glyph> may be '*' for any."
+        "<glyph> may be '*' for any.",
     )
 
     # UFO lib command
@@ -422,21 +605,24 @@ def main(args=None):
         description="UFO lib",
     )
     parser_lib.add_argument(
-        dest="paths", metavar="UFO", nargs="*",
+        dest="paths",
+        metavar="UFO",
+        nargs="*",
         help="UFOs to be tweaked.",
     )
     parser_lib.add_argument(
-        "--update", metavar="JSON",
-        help="JSON formatted lib data "
-        "'{key: value, [...]}'",
+        "--update",
+        metavar="JSON",
+        help="JSON formatted lib data " "'{key: value, [...]}'",
     )
     parser_lib.add_argument(
-        "--dump-key", metavar="KEY",
-        help="Print JSON formatted lib data "
-        "'key'",
+        "--dump-key",
+        metavar="KEY",
+        help="Print JSON formatted lib data " "'key'",
     )
     parser_lib.add_argument(
-        "--drop", metavar="STRING",
+        "--drop",
+        metavar="STRING",
         help="Comma separated list of lib keys to drop.",
     )
 
@@ -446,15 +632,19 @@ def main(args=None):
         description="Designspace",
     )
     parser_fontinfo.add_argument(
-        "designspace", metavar="DESIGNSPACE", nargs="*",
+        "designspace",
+        metavar="DESIGNSPACE",
+        nargs="*",
         help="DESIGNSPACE to be tweaked.",
     )
     parser_designspace.add_argument(
-        "--instance", metavar="STRING",
+        "--instance",
+        metavar="STRING",
         help="Instance",
     )
     parser_designspace.add_argument(
-        "--source", metavar="STRING",
+        "--source",
+        metavar="STRING",
         help="Source",
     )
     for attribute in ["name", "familyname", "stylename", "filename", "layer"]:
@@ -463,8 +653,11 @@ def main(args=None):
             metavar="STRING",
             help="Source or instance %s attribute" % attribute,
         )
-    for instance_attribute in ["postscriptfontname", "stylemapfamilyname",
-                               "stylemapstylename"]:
+    for instance_attribute in [
+        "postscriptfontname",
+        "stylemapfamilyname",
+        "stylemapstylename",
+    ]:
         parser_designspace.add_argument(
             "--%s" % instance_attribute,
             metavar="STRING",
@@ -473,12 +666,16 @@ def main(args=None):
 
     options = parser.parse_args(args)
 
-    print(options.command)
+    print("command", options.command)
     if not options.command:
         return
 
     for path in options.paths:
         if options.command != "designspace":
+            #     from defcon import Font
+            #     font = Font(path)
+            # else:
+            #     font = Font(path)
             font = Font(path)
         else:
             designspace = None

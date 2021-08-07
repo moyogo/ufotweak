@@ -35,6 +35,8 @@ class Updater():
             name = glyph.name
             if name in all_glyphs:
                 layer = self._font.layers.defaultLayer
+                if name in layer:
+                    del layer[name]
                 layer.insertGlyph(glyph, name)
 
     def _collect_glyphs(self):
@@ -44,7 +46,7 @@ class Updater():
 
     def _collect_components(self, glyph):
         all_glyphs = self._all_glyphs
-        print("> all_glyphs", all_glyphs)
+        # print("> all_glyphs", all_glyphs)
         for component in glyph.components:
             name = component.baseGlyph
             if name in all_glyphs:
@@ -55,7 +57,7 @@ class Updater():
             self._collect_components(self.source[name])
         all_glyphs.add(glyph.name)
 
-    def update_kerning(self):
+    def _update_kerning(self):
         pass
 
 
