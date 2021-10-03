@@ -57,7 +57,48 @@ class Updater:
         all_glyphs.add(glyph.name)
 
     def _update_kerning(self):
-        pass
+        # Remove glyphs from groups
+        for group_name, group in self.target.groups.items():
+            for glyph_name in group:
+                if glyph_name in self.glyphs:
+                    group.remove(glyph_name)
+        # Prune kerning
+        for kern_pair, value in list(self.target.kerning.items()):
+            left, right = kern_pair
+            if (
+                left.startswith("public.kern")
+                and left in self.target.groups
+                and not self.target.groups[left]
+            ):
+                del self.target.kerning[kern_pair]
+            elif (
+                right.startswith("public.kern")
+                and right in self.target.groups
+                and not self.target.groups[right]
+            ):
+                del self.target.kerning[kern_pair]
+        # Add glyphs to groups
+        for group_name, group in list(self.source.groups.items()):
+            for glyph_name in group:
+                if glyph_name not in self.glyphs:
+                    continue
+
+                if glyph_name == "abreve":
+                    breakpoint()
+                if group_name not in self.target.groups:
+                    self.target.groups[group_name] = [glyph_name]
+                else:
+                    self.target.groups[group_name].append(glyph_name)
+
+        # Add new kerning pairs-values
+        for kern_pair, value in list(self.source.kerning.items()):
+            left, right = kern_pair
+            pass
+            # TODO
+        # Prune empty groups
+        for group_name, group in list(self.target.groups.items()):
+            if not group:
+                del self.target.groups[group_name]
 
 
 def main(args=None):
