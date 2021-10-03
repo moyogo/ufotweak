@@ -65,22 +65,35 @@ def main(args=None):
     parser.add_argument("source", metavar="SOURCE", help="Source UFO with data")
     parser.add_argument("target", metavar="TARGET", help="Target UFO to update")
     # glyphs_group = parser.add_mutually_exclusive_group()
-    parser.add_argument("--glyphs", metavar="GLYPHLIST",
-                        help="Comma-separated list of glyphs to update.")
-    parser.add_argument("--layers", metavar="LAYERLIST",
-                        help="Comma-separated list of layers to update.")
+    parser.add_argument(
+        "--glyphs",
+        metavar="GLYPHLIST",
+        help="Comma-separated list of glyphs to update.",
+    )
+    parser.add_argument(
+        "--glyphs-txt",
+        metavar="GLYPHLISTFILE",
+        help="File with line-separated list of glyphs to update.",
+    )
+    parser.add_argument(
+        "--layers",
+        metavar="LAYERLIST",
+        help="Comma-separated list of layers to update.",
+    )
     parser.add_argument(
         "--overwrite-components",
         action="store_true",
-        help="Overwrite component glyphs when used in glyphs to update."
+        help="Overwrite component glyphs when used in glyphs to update.",
     )
     options = parser.parse_args(args)
 
     source = Font(options.source)
     target = Font(options.target)
     if options.glyphs:
-        options.glyphs = options.glyphs.split(",")
-    glyphs = options.glyphs
+        glyphs = options.glyphs.split(",")
+    elif options.glyphs_txt:
+        with open(options.glyphs_txt, "r") as fp:
+            glyphs = [n.strip() for n in fp.readlines()]
     if options.layers:
         options.layers = options.layers.split(",")
     layers = options.layers
