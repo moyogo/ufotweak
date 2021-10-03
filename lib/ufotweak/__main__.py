@@ -268,9 +268,9 @@ def process_glyph(font, options):
             if glyph_name in font.lib.get("public.postscriptNames"):
                 del font.lib["public.postscriptNames"][glyph_name]
 
-            for group in font.groups:
-                if glyph_name in group:
-                    group.remove(glyph_name)
+            for group_name, values in list(font.groups.items()):
+                if glyph_name in values:
+                    values.remove(glyph_name)
 
     if options.set_unicode:
         glyphs_unicodes = options.set_unicode.split(",")
