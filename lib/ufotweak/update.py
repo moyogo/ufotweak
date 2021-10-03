@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from ufoLib2 import Font
 
 
-class Updater():
+class Updater:
     def __init__(self, source, target, glyphs, layers, overwrite_components=True):
         self.source = source
         self.target = target
