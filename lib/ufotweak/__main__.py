@@ -198,9 +198,9 @@ class Renamer:
                         )
             return statement
 
-        ast = Parser(StringIO(str(self.font.features)), glyphNames=glyph_names).parse()
-        ast = recursive_fea_glyph_rename(ast)
-        self.font.features.text = ast.asFea()
+        # ast = Parser(StringIO(str(self.font.features)), glyphNames=glyph_names).parse()
+        # ast = recursive_fea_glyph_rename(ast)
+        # self.font.features.text = ast.asFea()
 
         glyph_order = [
             self.mapping.get(n, n) for n in self.font.lib.get("public.glyphOrder")
