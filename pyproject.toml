@@ -6,6 +6,8 @@ authors = ["Denis Moyogo Jacquerye <moyogo@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+fonttools = {extras = ["ufo"], version = "^4.27.1"}
+ufoLib2 = "^0.11.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
