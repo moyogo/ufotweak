@@ -154,7 +154,7 @@ def main(args=None):
 
     updater = Updater(source, target, glyphs, layers, overwrite_components)
     print("# Saving")
-    updater.font.save()
+    updater.font.save(validate=False)
 
 
 if __name__ == "__main__":
