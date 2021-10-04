@@ -21,9 +21,8 @@ class Updater:
     def _update_font(self):
         # TODO clone target before changing it
         self._font = self.target
-        print("all_glyphs before", self._all_glyphs)
         self._update_glyphs()
-        print("all_glyphs after", self._all_glyphs)
+        self._update_groups()
         self._update_kerning()
 
     def _update_glyphs(self):
@@ -56,12 +55,22 @@ class Updater:
             self._collect_components(self.source[name])
         all_glyphs.add(glyph.name)
 
+    def _update_groups(self):
+        # Remove glyphs present in destination groups but not in source groups
+        for group_name, glyph_list in list(self.target.groups.items()):
+            for glyph_name in glyph_list:
+                # skip glyphs already in the same source and target groups
+                if (
+                    group_name in self.source.groups
+                    and glyph_name in self.source.groups[group_name]
+                ):
+                    continue
+                # remove glyphs
+                elif glyph_name in self.glyphs:
+                    glyph_list.remove(glyph_name)
+            self.target.groups[group_name] = glyph_list
+
     def _update_kerning(self):
-        # Remove glyphs from groups
-        for group_name, group in self.target.groups.items():
-            for glyph_name in group:
-                if glyph_name in self.glyphs:
-                    group.remove(glyph_name)
         # Prune kerning
         for kern_pair, value in list(self.target.kerning.items()):
             left, right = kern_pair
@@ -77,24 +86,27 @@ class Updater:
                 and not self.target.groups[right]
             ):
                 del self.target.kerning[kern_pair]
+
         # Add glyphs to groups
+        left_groups = {}
+        right_groups = {}
         for group_name, group in list(self.source.groups.items()):
             for glyph_name in group:
                 if glyph_name not in self.glyphs:
                     continue
 
-                if glyph_name == "abreve":
-                    breakpoint()
                 if group_name not in self.target.groups:
                     self.target.groups[group_name] = [glyph_name]
-                else:
+                # else:
+                elif glyph_name not in self.target.groups[group_name]:
                     self.target.groups[group_name].append(glyph_name)
 
         # Add new kerning pairs-values
         for kern_pair, value in list(self.source.kerning.items()):
             left, right = kern_pair
-            pass
-            # TODO
+            if (left in left_groups or right in right_groups
+                or left in self.glyphs or right in self.glyphs):
+                self.target.kerning[(left, right)] = value
         # Prune empty groups
         for group_name, group in list(self.target.groups.items()):
             if not group:
