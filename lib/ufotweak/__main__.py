@@ -12,7 +12,8 @@ from ufoLib2 import Font
 try:
     from glyphConstruction import GlyphConstructionBuilder
 except ImportError:
-    print("Cannot use glyphConstruction as it is not installed.")
+    pass
+    # print("Cannot use glyphConstruction as it is not installed.")
 
 INFO_ATTR_BITLIST = {
     "openTypeHeadFlags": (0, 16),
