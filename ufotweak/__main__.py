@@ -85,7 +85,10 @@ class Renamer:
                         if name in self.mapping:
                             ci["name"] = self.mapping[name]
 
-                mks = [f"com.schriftgestaltung.Glyphs.glyph.{m}MetricsKey" for m in ["left", "right", "width"]]
+                mks = [
+                    f"com.schriftgestaltung.Glyphs.glyph.{m}MetricsKey"
+                    for m in ["left", "right", "width"]
+                ]
                 for mk in mks:
                     value = glyph.lib.get(mk)
                     if not value:
@@ -112,7 +115,7 @@ class Renamer:
                     group.insert(index, new)
 
             for old, new in self.mapping.items():
-                if group_name[len("public.kern1.") :] == old:
+                if group_name[len("public.kern1."):] == old:
                     new_group_name = group_name[: len("public.kern1.")] + new
                     del self.font.groups[group_name]
                     self.font.groups[new_group_name] = group
@@ -184,7 +187,7 @@ class Renamer:
                                     [
                                         *statement[:i],
                                         self.mapping[glyph_name],
-                                        *statement[i + 1 :],
+                                        *statement[i + 1:],
                                     ]
                                 )
                             else:
