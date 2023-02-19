@@ -684,12 +684,7 @@ def main(args=None):
 
     for path in options.paths:
         if options.command != "designspace":
-            #     from defcon import Font
-            #     font = Font(path)
-            # else:
-            #     font = Font(path)
-            font = Font()
-            font.open(path, lazy=False)
+            font = Font.open(path, lazy=False)
         else:
             designspace = None
         if options.command == "fontinfo":
