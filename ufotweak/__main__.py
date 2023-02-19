@@ -688,7 +688,8 @@ def main(args=None):
             #     font = Font(path)
             # else:
             #     font = Font(path)
-            font = Font(path)
+            font = Font()
+            font.open(path, lazy=False)
         else:
             designspace = None
         if options.command == "fontinfo":
@@ -701,7 +702,7 @@ def main(args=None):
             designspace = designspaceLib.DesignSpaceDocument.fromfile(path)
             process_designspace(designspace, options)
 
-        font.save()
+        font.save(path, overwrite=True)
 
 
 if __name__ == "__main__":
