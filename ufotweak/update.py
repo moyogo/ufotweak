@@ -3,7 +3,7 @@ from ufoLib2 import Font
 
 
 class Updater:
-    def __init__(self, source, target, glyphs, layers, overwrite_components=True):
+    def __init__(self, source, target, glyphs, layers=None, overwrite_components=True):
         self.source = source
         self.target = target
         self.glyphs = glyphs
