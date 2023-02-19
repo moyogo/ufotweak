@@ -140,8 +140,8 @@ def main(args=None):
     )
     options = parser.parse_args(args)
 
-    source = Font(options.source)
-    target = Font(options.target)
+    source = Font.open(options.source)
+    target = Font.open(options.target)
     if options.glyphs:
         glyphs = options.glyphs.split(",")
     elif options.glyphs_txt:
