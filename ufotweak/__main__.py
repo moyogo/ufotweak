@@ -326,6 +326,13 @@ def process_glyph(font, options):
             for anchor in glyph.anchors:
                 if anchor.name in mapping:
                     anchor.name = mapping[anchor.name]
+    if options.copy_anchors:
+        source, target, anchors = options.copy_anchors.split(":")
+        anchors = anchors.split(",")
+        font[target].anchors.extend([
+            anchor for anchor in font[source].anchors
+            if anchor.name in anchors
+        ])
     if options.drop_lib:
         lib_key, glyph_names = options.drop_lib.split(":")
         if glyph_names == "*":
@@ -562,6 +569,11 @@ def main(args=None):
         "--rename-anchor",
         metavar="STRING",
         help="<anchor1>:<anchor2>[,<anchor1>:<anchor2>,...]",
+    )
+    parser_glyph.add_argument(
+        "--copy-anchors",
+        metavar="STRING",
+        help="<source_glyph>:<target_glyph>:<anchor1>[,<anchor2>,...]",
     )
     parser_glyph.add_argument(
         "--drop-lib",
