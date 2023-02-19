@@ -30,6 +30,8 @@ class Updater:
         # TODO different layers
         self._collect_glyphs()
         all_glyphs = self._all_glyphs
+        glyphOrder = self._font.lib.get("public.glyphOrder")
+
         for glyph in self.source:
             name = glyph.name
             if name in all_glyphs:
@@ -37,6 +39,13 @@ class Updater:
                 if name in layer:
                     del layer[name]
                 layer.insertGlyph(glyph, name)
+
+            if glyphOrder and name not in glyphOrder:
+                glyphOrder.append(name)
+
+        if glyphOrder:
+            self._font.lib["public.glyphOrder"] = glyphOrder
+
 
     def _collect_glyphs(self):
         for glyph in self.source:
