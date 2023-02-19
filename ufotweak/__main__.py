@@ -219,6 +219,12 @@ class Renamer:
         if postscript_names:
             self.font.lib["public.postscriptNames"] = postscript_names
 
+        skip_export_glyphs = [
+            self.mapping.get(n, n) for n in self.font.lib.get("public.skipExportGlyphs")
+        ]
+        if skip_export_glyphs:
+            self.font.lib["public.skipExportGlyphs"] = skip_export_glyphs
+
 
 def process_fontinfo(font, options):
     for key, value_data in sorted(infoAttrValueData.items()):
