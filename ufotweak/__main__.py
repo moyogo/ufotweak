@@ -9,6 +9,9 @@ from ufo2ft.filters.propagateAnchors import PropagateAnchorsFilter
 from ufo2ft.filters.decomposeComponents import DecomposeComponentsFilter
 from ufoLib2 import Font
 
+from fontTools.feaLib.parser import Parser
+from io import StringIO
+
 try:
     from glyphConstruction import GlyphConstructionBuilder
 except ImportError:
@@ -138,8 +141,6 @@ class Renamer:
                 del self.font.kerning[old_pair]
                 self.font.kerning[pair] = value
                 continue
-        from fontTools.feaLib.parser import Parser
-        from io import StringIO
 
         def recursive_fea_glyph_rename(statement):
             if hasattr(statement, "statements"):
@@ -198,15 +199,16 @@ class Renamer:
                         )
             return statement
 
-        # ast = Parser(StringIO(str(self.font.features)), glyphNames=glyph_names).parse()
-        # ast = recursive_fea_glyph_rename(ast)
-        # self.font.features.text = ast.asFea()
+        ast = Parser(StringIO(str(self.font.features)), glyphNames=glyph_names).parse()
+        ast = recursive_fea_glyph_rename(ast)
+        self.font.features.text = ast.asFea()
 
         glyph_order = [
             self.mapping.get(n, n) for n in self.font.lib.get("public.glyphOrder")
         ]
         if glyph_order:
             self.font.lib["public.glyphOrder"] = glyph_order
+
         postscript_names = {
             self.mapping.get(k, k): v
             for k, v in self.font.lib.get("public.postscriptNames", {}).items()
