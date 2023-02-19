@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from ufoLib2 import Font
+from collections import defaultdict
 
 
 class Updater:
@@ -55,62 +56,139 @@ class Updater:
             self._collect_components(self.source[name])
         all_glyphs.add(glyph.name)
 
+    def _collect_groups(self):
+        # Collect dict keyed by source glyph with source groups they belong to as values
+        source_glyphs_groups = defaultdict(set)
+        target_glyphs_groups = defaultdict(set)
+        for group_name, glyphs_list in self.source.groups.items():
+            relevant_glyphs = set(glyphs_list).intersection(self.glyphs)
+            for glyph_name in relevant_glyphs:
+                source_glyphs_groups[glyph_name].add(group_name)
+        self.source_glyphs_groups = source_glyphs_groups
+        for group_name, glyphs_list in self.target.groups.items():
+            relevant_glyphs = set(glyphs_list).intersection(self.glyphs)
+            for glyph_name in relevant_glyphs:
+                target_glyphs_groups[glyph_name].add(group_name)
+        self.target_glyphs_groups = target_glyphs_groups
+
     def _update_groups(self):
-        # Remove glyphs present in destination groups but not in source groups
-        for group_name, glyph_list in list(self.target.groups.items()):
-            for glyph_name in glyph_list:
-                # skip glyphs already in the same source and target groups
-                if (
-                    group_name in self.source.groups
-                    and glyph_name in self.source.groups[group_name]
-                ):
-                    continue
-                # remove glyphs
-                elif glyph_name in self.glyphs:
-                    glyph_list.remove(glyph_name)
-            self.target.groups[group_name] = glyph_list
+        self._collect_groups()
+        # Add source groups not in target
+        for group_name, glyphs_list in self.source.groups.items():
+            if group_name not in self.target.groups and any(
+                n in glyphs_list for n in self.glyphs
+            ):
+                self.target.groups[group_name] = [
+                    n for n in glyphs_list if n in self.glyphs
+                ]
+
+        # Remove source glyphs from target groups that are not also source groups
+        for group_name, glyphs_list in list(self.target.groups.items()):
+            intersecting_glyphs = set(glyphs_list).intersection(self.glyphs)
+            for glyph_name in intersecting_glyphs:
+                if group_name not in self.source_glyphs_groups[glyph_name]:
+                    self.target.groups[group_name].remove(glyph_name)
+            if len(self.target.groups[group_name]) == 0:
+                del self.target.groups[group_name]
+
+        # Update groups that are in both
+        for group_name, glyphs_list in self.source.groups.items():
+            if group_name in self.target.groups:
+                for glyph_name in glyphs_list:
+                    if (
+                        glyph_name in self.glyphs
+                        and glyph_name not in self.target.groups[group_name]
+                    ):
+                        self.target.groups[group_name].append(glyph_name)
+
+        # # Remove glyphs present in destination groups but not in source groups
+        # for group_name, glyph_list in list(self.target.groups.items()):
+        #     for glyph_name in glyph_list:
+        #         # skip glyphs already in the same source and target groups
+        #         if (
+        #             group_name in self.source.groups
+        #             and glyph_name in self.source.groups[group_name]
+        #         ):
+        #             continue
+        #         # remove glyphs
+        #         elif glyph_name in self.glyphs:
+        #             glyph_list.remove(glyph_name)
+        #             print(f"Remove {glyph_name} from {group_name}")
+        #     self.target.groups[group_name] = glyph_list
+        # # Add glyphs to groups
+        # left_groups = {}
+        # right_groups = {}
+        # for group_name, group in list(self.source.groups.items()):
+        #     for glyph_name in group:
+        #         if glyph_name not in self.glyphs:
+        #             continue
+
+        #         if group_name not in self.target.groups:
+        #             self.target.groups[group_name] = [glyph_name]
+        #         # else:
+        #         elif glyph_name not in self.target.groups[group_name]:
+        #             self.target.groups[group_name].append(glyph_name)
 
     def _update_kerning(self):
-        # Prune kerning
+        def is_group(name):
+            return name.startswith("public.kern1.") or name.startswith("public.kern2.")
+
+        def is_updated(name, font, glyph_list=None):
+            if glyph_list is None:
+                glyph_list = self.glyphs
+
+            if name in glyph_list:
+                return True
+            elif is_group(name) and set(font.groups.get(name, ())).intersection(
+                glyph_list
+            ):
+                return True
+            return False
+
+        # Remove kerning of updated glyphs
         for kern_pair, value in list(self.target.kerning.items()):
             left, right = kern_pair
-            if (
-                left.startswith("public.kern")
-                and left in self.target.groups
-                and not self.target.groups[left]
-            ):
+            if is_updated(left, self.target) or is_updated(right, self.target):
                 del self.target.kerning[kern_pair]
-            elif (
-                right.startswith("public.kern")
-                and right in self.target.groups
-                and not self.target.groups[right]
-            ):
-                del self.target.kerning[kern_pair]
-
-        # Add glyphs to groups
-        left_groups = {}
-        right_groups = {}
-        for group_name, group in list(self.source.groups.items()):
-            for glyph_name in group:
-                if glyph_name not in self.glyphs:
-                    continue
-
-                if group_name not in self.target.groups:
-                    self.target.groups[group_name] = [glyph_name]
-                # else:
-                elif glyph_name not in self.target.groups[group_name]:
-                    self.target.groups[group_name].append(glyph_name)
-
-        # Add new kerning pairs-values
-        for kern_pair, value in list(self.source.kerning.items()):
+        # Then copy kerning of updated glyphs
+        for kern_pair, value in self.source.kerning.items():
             left, right = kern_pair
-            if (left in left_groups or right in right_groups
-                or left in self.glyphs or right in self.glyphs):
-                self.target.kerning[(left, right)] = value
-        # Prune empty groups
-        for group_name, group in list(self.target.groups.items()):
-            if not group:
-                del self.target.groups[group_name]
+            if is_updated(left, self.target) or is_updated(right, self.target):
+                self.target.kerning[kern_pair] = value
+        # Prune kerning of groups not present anymore
+        for kern_pair, value in list(self.target.kerning.items()):
+            left, right = kern_pair
+            if (is_group(left) and left not in self.target.groups) or (
+                is_group(right) and right not in self.target.groups
+            ):
+                del self.target.kerning[kern_pair]
+
+        # # Prune kerning
+        # for kern_pair, value in list(self.target.kerning.items()):
+        #     left, right = kern_pair
+        #     if (
+        #         left.startswith("public.kern")
+        #         and left in self.target.groups
+        #         and not self.target.groups[left]
+        #     ):
+        #         del self.target.kerning[kern_pair]
+        #     elif (
+        #         right.startswith("public.kern")
+        #         and right in self.target.groups
+        #         and not self.target.groups[right]
+        #     ):
+        #         del self.target.kerning[kern_pair]
+
+        # # Add new kerning pairs-values
+        # for kern_pair, value in list(self.source.kerning.items()):
+        #     left, right = kern_pair
+        #     if (
+        #         left in left_groups
+        #         or right in right_groups
+        #         or left in self.glyphs
+        #         or right in self.glyphs
+        #     ):
+        #         self.target.kerning[(left, right)] = value
 
 
 def main(args=None):
