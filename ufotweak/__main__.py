@@ -275,7 +275,7 @@ def process_glyph(font, options):
                 # TODO: remove glyph from features, groups and kerning
 
             if glyph_name in font.lib.get("public.glyphOrder"):
-                font.lib["glyphOrder"].remove(glyph_name)
+                font.lib["public.glyphOrder"].remove(glyph_name)
 
             if glyph_name in font.lib.get("public.postscriptNames"):
                 del font.lib["public.postscriptNames"][glyph_name]
